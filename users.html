@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🏗️ Manage Users - Egyptian Construction Suppliers</title>
+    <style>
+        :root {
+            --primary: #0d6efd;
+            --primary-light: #eaf2ff;
+            --background: #f9f9f9;
+            --card-bg: #ffffff;
+            --text-dark: #222;
+            --text-light: #555;
+            --border-color: #ddd;
+        }
+        body {
+            font-family: 'Arial', sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: var(--background);
+            color: var(--text-dark);
+        }
+        .header {
+            text-align: center;
+            padding: 30px;
+            background-color: var(--primary-light);
+            margin-bottom: 20px;
+            border-bottom: 2px solid var(--border-color);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            position: relative;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 28px;
+            color: var(--text-dark);
+        }
+        .header p {
+            margin: 5px 0 0;
+            color: var(--text-light);
+            font-size: 16px;
+        }
+        .header .auth-status {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            font-size: 14px;
+        }
+        .header .auth-status button, .header .auth-status a {
+            padding: 5px 10px;
+            background-color: var(--primary);
+            color: var(--card-bg);
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-left: 10px;
+            text-decoration: none;
+            display: inline-block;
+        }
+        .header .auth-status button:hover, .header .auth-status a:hover {
+            background-color: var(--text-light);
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .form-container {
+            background-color: var(--card-bg);
+            padding: 20px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .form-container h2 {
+            margin-top: 0;
+            color: var(--text-dark);
+        }
+        .form-container label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 14px;
+            color: var(--text-dark);
+        }
+        .form-container input,
+        .form-container select {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 15px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .form-container button {
+            padding: 10px 20px;
+            background-color: var(--primary);
+            color: var(--card-bg);
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.3s;
+        }
+        .form-container button:hover {
+            background-color: var(--text-light);
+        }
+        .unauthenticated-message {
+            text-align: center;
+            padding: 20px;
+            color: var(--text-light);
+            font-size: 16px;
+        }
+        @media (max-width: 768px) {
+            .container {
+                padding: 15px;
+            }
+            .form-container {
+                padding: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🏗️ Manage Users</h1>
+        <p>Add new users to the Egyptian Construction Suppliers system</p>
+        <div class="auth-status">
+            <span id="user-info">Not logged in</span>
+            <button id="logout-btn" onclick="logout()" style="display: none;">Logout</button>
+            <a href="index.html">Back to Suppliers</a>
+        </div>
+    </div>
+    <div class="container">
+        <div id="unauthenticated-message" class="unauthenticated-message" style="display: none;">
+            You must be a Manager to access this page. Please log in.
+        </div>
+        <div id="form-container" class="form-container" style="display: none;">
+            <h2>Add New User</h2>
+            <form id="userForm">
+                <label for="user-email">Email:</label>
+                <input type="email" id="user-email" required>
+                <label for="user-password">Password (minimum 6 characters):</label>
+                <input type="password" id="user-password" required minlength="6">
+                <label for="user-role">Role:</label>
+                <select id="user-role" required>
+                    <option value="Manager">Manager</option>
+                    <option value="Editor">Editor</option>
+                    <option value="Viewer">Viewer</option>
+                </select>
+                <button type="submit">Add User</button>
+            </form>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.0/firebase-app.js";
+        import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.14.0/firebase-firestore.js";
+        import { getAuth, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.14.0/firebase-auth.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyD5mjE8QffWoMR4812-6V2D6oOAeyyZ3Rs",
+            authDomain: "constructionsuppliersdatabase.firebaseapp.com",
+            projectId: "constructionsuppliersdatabase",
+            storageBucket: "constructionsuppliersdatabase.appspot.com",
+            messagingSenderId: "218345220826",
+            appId: "1:218345220826:web:b54a0d497508d51bf293e3",
+            measurementId: "G-R6SWKENJQY"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+
+        let userRole = null;
+
+        async function logout() {
+            try {
+                await signOut(auth);
+                userRole = null;
+                document.getElementById('user-info').textContent = 'Not logged in';
+                document.getElementById('logout-btn').style.display = 'none';
+                document.getElementById('form-container').style.display = 'none';
+                document.getElementById('unauthenticated-message').style.display = 'block';
+            } catch (e) {
+                console.error("Error logging out: ", e);
+                alert('Logout failed: ' + e.message);
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                    try {
+                        const userDoc = await getDoc(doc(db, 'users', user.uid));
+                        userRole = userDoc.exists() ? userDoc.data().role : null;
+                        document.getElementById('user-info').textContent = `Logged in as ${user.email} (${userRole || 'No role'})`;
+                        document.getElementById('logout-btn').style.display = 'inline';
+                        if (userRole === 'Manager') {
+                            document.getElementById('form-container').style.display = 'block';
+                            document.getElementById('unauthenticated-message').style.display = 'none';
+                        } else {
+                            document.getElementById('form-container').style.display = 'none';
+                            document.getElementById('unauthenticated-message').style.display = 'block';
+                            document.getElementById('unauthenticated-message').textContent = 'You must be a Manager to access this page.';
+                        }
+                    } catch (e) {
+                        console.error("Error fetching user role: ", e);
+                        userRole = null;
+                        document.getElementById('user-info').textContent = 'Not logged in';
+                        document.getElementById('logout-btn').style.display = 'none';
+                        document.getElementById('form-container').style.display = 'none';
+                        document.getElementById('unauthenticated-message').style.display = 'block';
+                    }
+                } else {
+                    userRole = null;
+                    document.getElementById('user-info').textContent = 'Not logged in';
+                    document.getElementById('logout-btn').style.display = 'none';
+                    document.getElementById('form-container').style.display = 'none';
+                    document.getElementById('unauthenticated-message').style.display = 'block';
+                }
+            });
+
+            const userForm = document.getElementById('userForm');
+            userForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                if (!auth.currentUser || userRole !== 'Manager') {
+                    alert('Only Managers can add users.');
+                    return;
+                }
+                const email = document.getElementById('user-email').value;
+                const password = document.getElementById('user-password').value;
+                const role = document.getElementById('user-role').value;
+                try {
+                    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+                    const user = userCredential.user;
+                    await setDoc(doc(db, 'users', user.uid), { role: role });
+                    alert(`User ${email} created with role ${role}`);
+                    userForm.reset();
+                } catch (e) {
+                    console.error("Error creating user: ", e);
+                    alert('Failed to create user: ' + e.message);
+                }
+            });
+        });
+
+        window.logout = logout;
+    </script>
+</body>
+</html>

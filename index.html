@@ -55,7 +55,7 @@
             right: 10px;
             font-size: 14px;
         }
-        .header .auth-status button {
+        .header .auth-status button, .header .auth-status a {
             padding: 5px 10px;
             background-color: var(--primary);
             color: var(--card-bg);
@@ -63,8 +63,10 @@
             border-radius: 4px;
             cursor: pointer;
             margin-left: 10px;
+            text-decoration: none;
+            display: inline-block;
         }
-        .header .auth-status button:hover {
+        .header .auth-status button:hover, .header .auth-status a:hover {
             background-color: var(--text-light);
         }
         .filters {
@@ -312,6 +314,12 @@
         .modal form button:hover {
             background-color: var(--text-light);
         }
+        .unauthenticated-message {
+            text-align: center;
+            padding: 20px;
+            color: var(--text-light);
+            font-size: 16px;
+        }
         @media (max-width: 768px) {
             .container {
                 flex-direction: column;
@@ -340,6 +348,7 @@
             <span id="user-info">Not logged in</span>
             <button id="login-btn" onclick="showLoginModal()">Login</button>
             <button id="logout-btn" onclick="logout()" style="display: none;">Logout</button>
+            <a id="manage-users-link" href="users.html" style="display: none;">Manage Users</a>
         </div>
     </div>
     <div class="container">
@@ -391,6 +400,9 @@
             <button class="clear-btn">Clear All Filters</button>
         </div>
         <div class="suppliers-list">
+            <div id="unauthenticated-message" class="unauthenticated-message" style="display: none;">
+                Please log in to view suppliers.
+            </div>
             <button class="add-btn" id="add-supplier-btn" onclick="showModal(null)" style="display: none;">Add New Supplier</button>
             <!-- Supplier cards will be dynamically added here -->
         </div>
@@ -404,14 +416,12 @@
             <form id="supplierForm">
                 <label for="name">Name:</label>
                 <input type="text" id="name" required>
-
                 <label for="classification">Classification:</label>
                 <select id="classification" required>
                     <option value="A">A</option>
                     <option value="B">B</option>
                     <option value="C">C</option>
                 </select>
-
                 <label for="category">Category:</label>
                 <select id="category" required>
                     <option value="Steel Supplier">Steel Supplier</option>
@@ -424,22 +434,16 @@
                     <option value="Paint Supplier">Paint Supplier</option>
                     <option value="Tile Supplier">Tile Supplier</option>
                 </select>
-
                 <label for="email">Email:</label>
                 <input type="email" id="email" required>
-
                 <label for="phone">Phone:</label>
                 <input type="text" id="phone" required>
-
                 <label for="catalog">Catalog URL:</label>
                 <input type="url" id="catalog" required>
-
                 <label for="goodReviews">Good Reviews (number):</label>
                 <input type="number" id="goodReviews" required min="0">
-
                 <label for="badReviews">Bad Reviews (text):</label>
                 <input type="text" id="badReviews" required>
-
                 <label for="location">Location:</label>
                 <select id="location" required>
                     <option value="Cairo">Cairo</option>
@@ -453,7 +457,6 @@
                     <option value="Aswan">Aswan</option>
                     <option value="Luxor">Luxor</option>
                 </select>
-
                 <button type="submit">Save</button>
             </form>
         </div>
@@ -508,44 +511,42 @@
                 applyFilters();
             } catch (e) {
                 console.error("Error loading suppliers: ", e);
+                document.getElementById('unauthenticated-message').style.display = 'block';
             }
         }
 
         function renderSuppliers(filtered) {
             const list = document.querySelector('.suppliers-list');
-            list.innerHTML = '<button class="add-btn" id="add-supplier-btn" onclick="showModal(null)" style="display: ' + (userRole === 'Manager' || userRole === 'Editor' ? 'block' : 'none') + ';">Add New Supplier</button>';
-            filtered.forEach((s) => {
-                const card = document.createElement('div');
-                card.classList.add('card');
-                let actions = '';
-                if (userRole === 'Manager') {
-                    actions = `
-                        <div class="actions">
-                            <button class="edit-btn" onclick="showModal('${s.id}')">Edit</button>
-                            <button class="delete-btn" onclick="deleteSupplier('${s.id}')">Delete</button>
-                        </div>
+            list.innerHTML = '<div id="unauthenticated-message" class="unauthenticated-message" style="display: ' + (auth.currentUser ? 'none' : 'block') + ';">Please log in to view suppliers.</div>';
+            list.innerHTML += '<button class="add-btn" id="add-supplier-btn" onclick="showModal(null)" style="display: ' + (userRole === 'Manager' || userRole === 'Editor' ? 'block' : 'none') + ';">Add New Supplier</button>';
+            if (auth.currentUser) {
+                filtered.forEach((s) => {
+                    const card = document.createElement('div');
+                    card.classList.add('card');
+                    let actions = '';
+                    if (userRole === 'Manager' || userRole === 'Editor') {
+                        actions = `
+                            <div class="actions">
+                                <button class="edit-btn" onclick="showModal('${s.id}')">Edit</button>
+                                <button class="delete-btn" onclick="deleteSupplier('${s.id}')">Delete</button>
+                            </div>
+                        `;
+                    }
+                    card.innerHTML = `
+                        ${actions}
+                        <h4>${s.name}</h4>
+                        <p>Classification: <span class="classification-span ${s.classification}">${s.classification}</span></p>
+                        <p class="category">Category: ${s.category}</p>
+                        <p class="location">Location: ${s.location}</p>
+                        <p class="email">Email: ${s.email}</p>
+                        <p class="phone">Phone: ${s.phone}</p>
+                        <p class="catalog">Catalog: <a href="${s.catalog}" target="_blank">${s.catalog}</a></p>
+                        <p class="goodReviews">Good Reviews: ${s.goodReviews}</p>
+                        <p class="badReviews">Bad Reviews: ${s.badReviews}</p>
                     `;
-                } else if (userRole === 'Editor' && s.uid === auth.currentUser.uid) {
-                    actions = `
-                        <div class="actions">
-                            <button class="edit-btn" onclick="showModal('${s.id}')">Edit</button>
-                        </div>
-                    `;
-                }
-                card.innerHTML = `
-                    ${actions}
-                    <h4>${s.name}</h4>
-                    <p>Classification: <span class="classification-span ${s.classification}">${s.classification}</span></p>
-                    <p class="category">Category: ${s.category}</p>
-                    <p class="location">Location: ${s.location}</p>
-                    <p class="email">Email: ${s.email}</p>
-                    <p class="phone">Phone: ${s.phone}</p>
-                    <p class="catalog">Catalog: <a href="${s.catalog}" target="_blank">${s.catalog}</a></p>
-                    <p class="goodReviews">Good Reviews: ${s.goodReviews}</p>
-                    <p class="badReviews">Bad Reviews: ${s.badReviews}</p>
-                `;
-                list.appendChild(card);
-            });
+                    list.appendChild(card);
+                });
+            }
         }
 
         function applyFilters() {
@@ -628,10 +629,13 @@
                 document.getElementById('user-info').textContent = 'Not logged in';
                 document.getElementById('login-btn').style.display = 'inline';
                 document.getElementById('logout-btn').style.display = 'none';
+                document.getElementById('manage-users-link').style.display = 'none';
                 document.getElementById('add-supplier-btn').style.display = 'none';
-                await loadSuppliers();
+                document.getElementById('unauthenticated-message').style.display = 'block';
+                renderSuppliers([]);
             } catch (e) {
                 console.error("Error logging out: ", e);
+                alert('Logout failed: ' + e.message);
             }
         }
 
@@ -653,7 +657,6 @@
         }
 
         document.addEventListener('DOMContentLoaded', () => {
-            // Handle authentication state
             onAuthStateChanged(auth, async (user) => {
                 if (user) {
                     try {
@@ -662,22 +665,33 @@
                         document.getElementById('user-info').textContent = `Logged in as ${user.email} (${userRole || 'No role'})`;
                         document.getElementById('login-btn').style.display = 'none';
                         document.getElementById('logout-btn').style.display = 'inline';
+                        document.getElementById('manage-users-link').style.display = userRole === 'Manager' ? 'inline-block' : 'none';
                         document.getElementById('add-supplier-btn').style.display = userRole === 'Manager' || userRole === 'Editor' ? 'block' : 'none';
+                        document.getElementById('unauthenticated-message').style.display = 'none';
+                        await loadSuppliers();
                     } catch (e) {
                         console.error("Error fetching user role: ", e);
                         userRole = null;
+                        document.getElementById('user-info').textContent = 'Not logged in';
+                        document.getElementById('login-btn').style.display = 'inline';
+                        document.getElementById('logout-btn').style.display = 'none';
+                        document.getElementById('manage-users-link').style.display = 'none';
+                        document.getElementById('add-supplier-btn').style.display = 'none';
+                        document.getElementById('unauthenticated-message').style.display = 'block';
+                        renderSuppliers([]);
                     }
                 } else {
                     userRole = null;
                     document.getElementById('user-info').textContent = 'Not logged in';
                     document.getElementById('login-btn').style.display = 'inline';
                     document.getElementById('logout-btn').style.display = 'none';
+                    document.getElementById('manage-users-link').style.display = 'none';
                     document.getElementById('add-supplier-btn').style.display = 'none';
+                    document.getElementById('unauthenticated-message').style.display = 'block';
+                    renderSuppliers([]);
                 }
-                await loadSuppliers();
             });
 
-            // Login form submission
             const loginForm = document.getElementById('loginForm');
             loginForm.addEventListener('submit', async (e) => {
                 e.preventDefault();
@@ -692,7 +706,6 @@
                 }
             });
 
-            // Supplier form submission
             const supplierForm = document.getElementById('supplierForm');
             supplierForm.addEventListener('submit', async (e) => {
                 e.preventDefault();
@@ -746,7 +759,6 @@
             };
         });
 
-        // Expose functions to global scope
         window.showModal = showModal;
         window.deleteSupplier = deleteSupplier;
         window.showLoginModal = showLoginModal;

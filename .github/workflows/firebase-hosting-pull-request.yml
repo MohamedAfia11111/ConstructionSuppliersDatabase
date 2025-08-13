@@ -12,4 +12,4 @@ jobs:
         with:
           repoToken: '${{ secrets.GITHUB_TOKEN }}'
           firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_constructionsuppliersdatabase }}'
-          projectId: ecgconstructionsuppliersnew-12345
+          projectId: constructionsuppliersdatabase

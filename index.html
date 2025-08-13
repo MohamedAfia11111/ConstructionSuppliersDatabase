@@ -435,152 +435,160 @@
         </div>
     </div>
 
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-        import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+   <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+    import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
-        // Placeholder: Update with your Firebase config after Step 3
-       const firebaseConfig = {
-        apiKey: "AIzaSyD5mjE8QffWoMR4812-6V2D6oOAeyyZ3Rs",
-        authDomain: "constructionsuppliersdatabase.firebaseapp.com",
-        projectId: "constructionsuppliersdatabase",
-        storageBucket: "constructionsuppliersdatabase.firebasestorage.app",
-        messagingSenderId: "218345220826",
-        appId: "1:218345220826:web:b54a0d497508d51bf293e3",
-        measurementId: "G-R6SWKENJQY"
-        };
+    const firebaseConfig = {
+      apiKey: "AIzaSyD5mjE8QffWoMR4812-6V2D6oOAeyyZ3Rs",
+      authDomain: "constructionsuppliersdatabase.firebaseapp.com",
+      projectId: "constructionsuppliersdatabase",
+      storageBucket: "constructionsuppliersdatabase.firebasestorage.app",
+      messagingSenderId: "218345220826",
+      appId: "1:218345220826:web:b54a0d497508d51bf293e3",
+      measurementId: "G-R6SWKENJQY"
+    };
 
-        const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
-        const suppliersCol = collection(db, 'suppliers');
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const suppliersCol = collection(db, 'suppliers');
 
-        let suppliers = [];
-        let editingId = null;
+    let suppliers = [];
+    let editingId = null;
 
-        async function loadSuppliers() {
-            suppliers = [];
+    async function loadSuppliers() {
+        suppliers = [];
+        try {
             const querySnapshot = await getDocs(suppliersCol);
             querySnapshot.forEach((doc) => {
                 suppliers.push({ id: doc.id, ...doc.data() });
             });
             applyFilters();
+        } catch (e) {
+            console.error("Error loading suppliers: ", e);
         }
+    }
 
-        function renderSuppliers(filtered) {
-            const list = document.querySelector('.suppliers-list');
-            list.innerHTML = '<button class="add-btn" onclick="showModal(null)">Add New Supplier</button>';
-            filtered.forEach((s) => {
-                const card = document.createElement('div');
-                card.classList.add('card');
-                card.innerHTML = `
-                    <div class="actions">
-                        <button class="edit-btn" onclick="showModal('${s.id}')">Edit</button>
-                        <button class="delete-btn" onclick="deleteSupplier('${s.id}')">Delete</button>
-                    </div>
-                    <h4>${s.name}</h4>
-                    <p>Classification: <span class="classification-span ${s.classification}">${s.classification}</span></p>
-                    <p class="category">Category: ${s.category}</p>
-                    <p class="location">Location: ${s.location}</p>
-                    <p class="email">Email: ${s.email}</p>
-                    <p class="phone">Phone: ${s.phone}</p>
-                    <p class="catalog">Catalog: <a href="${s.catalog}" target="_blank">${s.catalog}</a></p>
-                    <p class="goodReviews">Good Reviews: ${s.goodReviews}</p>
-                    <p class="badReviews">Bad Reviews: ${s.badReviews}</p>
-                `;
-                list.appendChild(card);
+    function renderSuppliers(filtered) {
+        const list = document.querySelector('.suppliers-list');
+        list.innerHTML = '<button class="add-btn" onclick="showModal(null)">Add New Supplier</button>';
+        filtered.forEach((s) => {
+            const card = document.createElement('div');
+            card.classList.add('card');
+            card.innerHTML = `
+                <div class="actions">
+                    <button class="edit-btn" onclick="showModal('${s.id}')">Edit</button>
+                    <button class="delete-btn" onclick="deleteSupplier('${s.id}')">Delete</button>
+                </div>
+                <h4>${s.name}</h4>
+                <p>Classification: <span class="classification-span ${s.classification}">${s.classification}</span></p>
+                <p class="category">Category: ${s.category}</p>
+                <p class="location">Location: ${s.location}</p>
+                <p class="email">Email: ${s.email}</p>
+                <p class="phone">Phone: ${s.phone}</p>
+                <p class="catalog">Catalog: <a href="${s.catalog}" target="_blank">${s.catalog}</a></p>
+                <p class="goodReviews">Good Reviews: ${s.goodReviews}</p>
+                <p class="badReviews">Bad Reviews: ${s.badReviews}</p>
+            `;
+            list.appendChild(card);
+        });
+    }
+
+    function applyFilters() {
+        const nameFilter = document.getElementById('name-filter').value.toLowerCase();
+        const selectedClass = Array.from(document.querySelectorAll('.classification-filter:checked')).map(i => i.value);
+        const selectedCat = Array.from(document.querySelectorAll('.category-filter:checked')).map(i => i.value);
+        const selectedLoc = Array.from(document.querySelectorAll('.location-filter:checked')).map(i => i.value);
+        const selectedFeatures = Array.from(document.querySelectorAll('.feature-filter:checked')).map(i => i.value);
+
+        const filtered = suppliers.filter(s => {
+            const matchesName = nameFilter ? s.name.toLowerCase().includes(nameFilter) : true;
+            const matchesClass = selectedClass.length === 0 || selectedClass.includes(s.classification);
+            const matchesCat = selectedCat.length === 0 || selectedCat.includes(s.category);
+            const matchesLoc = selectedLoc.length === 0 || selectedLoc.includes(s.location);
+            const matchesFeatures = selectedFeatures.every(f => {
+                if (f === 'hasEmail') return s.email && s.email !== '';
+                if (f === 'hasPhone') return s.phone && s.phone !== '';
+                if (f === 'hasCatalog') return s.catalog && s.catalog !== '';
+                return true;
             });
+            return matchesName && matchesClass && matchesCat && matchesLoc && matchesFeatures;
+        });
+
+        renderSuppliers(filtered);
+    }
+
+    function clearFilters() {
+        document.getElementById('name-filter').value = '';
+        document.querySelectorAll('.classification-filter').forEach(i => i.checked = false);
+        document.querySelectorAll('.category-filter').forEach(i => i.checked = false);
+        document.querySelectorAll('.location-filter').forEach(i => i.checked = false);
+        document.querySelectorAll('.feature-filter').forEach(i => i.checked = false);
+        applyFilters();
+    }
+
+    function showModal(id) {
+        editingId = id;
+        const modal = document.getElementById('supplierModal');
+        const title = document.getElementById('modalTitle');
+        if (id) {
+            title.textContent = 'Edit Supplier';
+            const s = suppliers.find(sup => sup.id === id);
+            document.getElementById('name').value = s.name;
+            document.getElementById('classification').value = s.classification;
+            document.getElementById('category').value = s.category;
+            document.getElementById('email').value = s.email;
+            document.getElementById('phone').value = s.phone;
+            document.getElementById('catalog').value = s.catalog;
+            document.getElementById('goodReviews').value = s.goodReviews;
+            document.getElementById('badReviews').value = s.badReviews;
+            document.getElementById('location').value = s.location;
+        } else {
+            title.textContent = 'Add Supplier';
+            document.getElementById('supplierForm').reset();
         }
+        modal.style.display = 'block';
+    }
 
-        function applyFilters() {
-            const nameFilter = document.getElementById('name-filter').value.toLowerCase();
-            const selectedClass = Array.from(document.querySelectorAll('.classification-filter:checked')).map(i => i.value);
-            const selectedCat = Array.from(document.querySelectorAll('.category-filter:checked')).map(i => i.value);
-            const selectedLoc = Array.from(document.querySelectorAll('.location-filter:checked')).map(i => i.value);
-            const selectedFeatures = Array.from(document.querySelectorAll('.feature-filter:checked')).map(i => i.value);
+    function closeModal() {
+        document.getElementById('supplierModal').style.display = 'none';
+    }
 
-            const filtered = suppliers.filter(s => {
-                const matchesName = nameFilter ? s.name.toLowerCase().includes(nameFilter) : true;
-                const matchesClass = selectedClass.length === 0 || selectedClass.includes(s.classification);
-                const matchesCat = selectedCat.length === 0 || selectedCat.includes(s.category);
-                const matchesLoc = selectedLoc.length === 0 || selectedLoc.includes(s.location);
-                const matchesFeatures = selectedFeatures.every(f => {
-                    if (f === 'hasEmail') return s.email && s.email !== '';
-                    if (f === 'hasPhone') return s.phone && s.phone !== '';
-                    if (f === 'hasCatalog') return s.catalog && s.catalog !== '';
-                    return true;
-                });
-                return matchesName && matchesClass && matchesCat && matchesLoc && matchesFeatures;
-            });
-
-            renderSuppliers(filtered);
-        }
-
-        function clearFilters() {
-            document.getElementById('name-filter').value = '';
-            document.querySelectorAll('.classification-filter').forEach(i => i.checked = false);
-            document.querySelectorAll('.category-filter').forEach(i => i.checked = false);
-            document.querySelectorAll('.location-filter').forEach(i => i.checked = false);
-            document.querySelectorAll('.feature-filter').forEach(i => i.checked = false);
-            applyFilters();
-        }
-
-        function showModal(id) {
-            editingId = id;
-            const modal = document.getElementById('supplierModal');
-            const title = document.getElementById('modalTitle');
-            if (id) {
-                title.textContent = 'Edit Supplier';
-                const s = suppliers.find(sup => sup.id === id);
-                document.getElementById('name').value = s.name;
-                document.getElementById('classification').value = s.classification;
-                document.getElementById('category').value = s.category;
-                document.getElementById('email').value = s.email;
-                document.getElementById('phone').value = s.phone;
-                document.getElementById('catalog').value = s.catalog;
-                document.getElementById('goodReviews').value = s.goodReviews;
-                document.getElementById('badReviews').value = s.badReviews;
-                document.getElementById('location').value = s.location;
-            } else {
-                title.textContent = 'Add Supplier';
-                document.getElementById('supplierForm').reset();
-            }
-            modal.style.display = 'block';
-        }
-
-        function closeModal() {
-            document.getElementById('supplierModal').style.display = 'none';
-        }
-
-        async function deleteSupplier(id) {
-            if (confirm('Are you sure you want to delete this supplier?')) {
+    async function deleteSupplier(id) {
+        if (confirm('Are you sure you want to delete this supplier?')) {
+            try {
                 await deleteDoc(doc(db, "suppliers", id));
                 await loadSuppliers();
+            } catch (e) {
+                console.error("Error deleting supplier: ", e);
             }
         }
+    }
 
-        document.addEventListener('DOMContentLoaded', () => {
-            loadSuppliers();
-            document.getElementById('name-filter').addEventListener('input', applyFilters);
-            document.querySelectorAll('.classification-filter').forEach(i => i.addEventListener('change', applyFilters));
-            document.querySelectorAll('.category-filter').forEach(i => i.addEventListener('change', applyFilters));
-            document.querySelectorAll('.location-filter').forEach(i => i.addEventListener('change', applyFilters));
-            document.querySelectorAll('.feature-filter').forEach(i => i.addEventListener('change', applyFilters));
-            document.querySelector('.clear-btn').addEventListener('click', clearFilters);
+    document.addEventListener('DOMContentLoaded', () => {
+        loadSuppliers();
+        document.getElementById('name-filter').addEventListener('input', applyFilters);
+        document.querySelectorAll('.classification-filter').forEach(i => i.addEventListener('change', applyFilters));
+        document.querySelectorAll('.category-filter').forEach(i => i.addEventListener('change', applyFilters));
+        document.querySelectorAll('.location-filter').forEach(i => i.addEventListener('change', applyFilters));
+        document.querySelectorAll('.feature-filter').forEach(i => i.addEventListener('change', applyFilters));
+        document.querySelector('.clear-btn').addEventListener('click', clearFilters);
 
-            const form = document.getElementById('supplierForm');
-            form.addEventListener('submit', async (e) => {
-                e.preventDefault();
-                const supplier = {
-                    name: document.getElementById('name').value,
-                    classification: document.getElementById('classification').value,
-                    category: document.getElementById('category').value,
-                    email: document.getElementById('email').value,
-                    phone: document.getElementById('phone').value,
-                    catalog: document.getElementById('catalog').value,
-                    goodReviews: parseInt(document.getElementById('goodReviews').value),
-                    badReviews: document.getElementById('badReviews').value,
-                    location: document.getElementById('location').value
-                };
+        const form = document.getElementById('supplierForm');
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const supplier = {
+                name: document.getElementById('name').value,
+                classification: document.getElementById('classification').value,
+                category: document.getElementById('category').value,
+                email: document.getElementById('email').value,
+                phone: document.getElementById('phone').value,
+                catalog: document.getElementById('catalog').value,
+                goodReviews: parseInt(document.getElementById('goodReviews').value),
+                badReviews: document.getElementById('badReviews').value,
+                location: document.getElementById('location').value
+            };
+            try {
                 if (editingId) {
                     await updateDoc(doc(db, "suppliers", editingId), supplier);
                 } else {
@@ -588,15 +596,23 @@
                 }
                 closeModal();
                 await loadSuppliers();
-            });
-
-            window.onclick = (event) => {
-                const modal = document.getElementById('supplierModal');
-                if (event.target === modal) {
-                    closeModal();
-                }
-            };
+            } catch (e) {
+                console.error("Error saving supplier: ", e);
+            }
         });
-    </script>
+
+        window.onclick = (event) => {
+            const modal = document.getElementById('supplierModal');
+            if (event.target === modal) {
+                closeModal();
+            }
+        };
+    });
+
+    // Expose functions to global scope for onclick attributes
+    window.showModal = showModal;
+    window.deleteSupplier = deleteSupplier;
+</script>
+
 </body>
 </html>

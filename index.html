@@ -404,7 +404,6 @@
                 Please log in to view suppliers.
             </div>
             <button class="add-btn" id="add-supplier-btn" onclick="showModal(null)" style="display: none;">Add New Supplier</button>
-            <!-- Supplier cards will be dynamically added here -->
         </div>
     </div>
 
@@ -517,9 +516,9 @@
 
         function renderSuppliers(filtered) {
             const list = document.querySelector('.suppliers-list');
-            list.innerHTML = '<div id="unauthenticated-message" class="unauthenticated-message" style="display: ' + (auth.currentUser ? 'none' : 'block') + ';">Please log in to view suppliers.</div>';
+            list.innerHTML = '<div id="unauthenticated-message" class="unauthenticated-message" style="display: ' + (auth.currentUser && userRole ? 'none' : 'block') + ';">Please log in to view suppliers.</div>';
             list.innerHTML += '<button class="add-btn" id="add-supplier-btn" onclick="showModal(null)" style="display: ' + (userRole === 'Manager' || userRole === 'Editor' ? 'block' : 'none') + ';">Add New Supplier</button>';
-            if (auth.currentUser) {
+            if (auth.currentUser && userRole) {
                 filtered.forEach((s) => {
                     const card = document.createElement('div');
                     card.classList.add('card');
@@ -583,8 +582,8 @@
         }
 
         function showModal(id) {
-            if (!auth.currentUser) {
-                alert('Please log in to perform this action.');
+            if (!auth.currentUser || !userRole) {
+                alert('Please log in with a valid role to perform this action.');
                 showLoginModal();
                 return;
             }
@@ -640,8 +639,8 @@
         }
 
         async function deleteSupplier(id) {
-            if (!auth.currentUser) {
-                alert('Please log in to perform this action.');
+            if (!auth.currentUser || !userRole) {
+                alert('Please log in with a valid role to perform this action.');
                 showLoginModal();
                 return;
             }
@@ -661,8 +660,20 @@
                 if (user) {
                     try {
                         const userDoc = await getDoc(doc(db, 'users', user.uid));
-                        userRole = userDoc.exists() ? userDoc.data().role : null;
-                        document.getElementById('user-info').textContent = `Logged in as ${user.email} (${userRole || 'No role'})`;
+                        if (!userDoc.exists()) {
+                            await signOut(auth);
+                            document.getElementById('user-info').textContent = 'Not logged in';
+                            document.getElementById('login-btn').style.display = 'inline';
+                            document.getElementById('logout-btn').style.display = 'none';
+                            document.getElementById('manage-users-link').style.display = 'none';
+                            document.getElementById('add-supplier-btn').style.display = 'none';
+                            document.getElementById('unauthenticated-message').style.display = 'block';
+                            document.getElementById('unauthenticated-message').textContent = 'No role assigned. Contact a Manager.';
+                            renderSuppliers([]);
+                            return;
+                        }
+                        userRole = userDoc.data().role;
+                        document.getElementById('user-info').textContent = `Logged in as ${user.email} (${userRole})`;
                         document.getElementById('login-btn').style.display = 'none';
                         document.getElementById('logout-btn').style.display = 'inline';
                         document.getElementById('manage-users-link').style.display = userRole === 'Manager' ? 'inline-block' : 'none';
@@ -671,6 +682,7 @@
                         await loadSuppliers();
                     } catch (e) {
                         console.error("Error fetching user role: ", e);
+                        await signOut(auth);
                         userRole = null;
                         document.getElementById('user-info').textContent = 'Not logged in';
                         document.getElementById('login-btn').style.display = 'inline';
@@ -678,6 +690,7 @@
                         document.getElementById('manage-users-link').style.display = 'none';
                         document.getElementById('add-supplier-btn').style.display = 'none';
                         document.getElementById('unauthenticated-message').style.display = 'block';
+                        document.getElementById('unauthenticated-message').textContent = 'Error fetching role. Please log in again.';
                         renderSuppliers([]);
                     }
                 } else {
@@ -709,8 +722,8 @@
             const supplierForm = document.getElementById('supplierForm');
             supplierForm.addEventListener('submit', async (e) => {
                 e.preventDefault();
-                if (!auth.currentUser) {
-                    alert('Please log in to perform this action.');
+                if (!auth.currentUser || !userRole) {
+                    alert('Please log in with a valid role to perform this action.');
                     showLoginModal();
                     return;
                 }

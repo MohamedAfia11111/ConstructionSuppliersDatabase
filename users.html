@@ -13,6 +13,7 @@
             --text-dark: #222;
             --text-light: #555;
             --border-color: #ddd;
+            --danger: #dc3545;
         }
         body {
             font-family: 'Arial', sans-serif;
@@ -61,29 +62,29 @@
             background-color: var(--text-light);
         }
         .container {
-            max-width: 600px;
+            max-width: 800px;
             margin: 0 auto;
             padding: 20px;
         }
-        .form-container {
+        .form-container, .users-list {
             background-color: var(--card-bg);
             padding: 20px;
             border: 1px solid var(--border-color);
             border-radius: 8px;
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
         }
-        .form-container h2 {
+        .form-container h2, .users-list h2 {
             margin-top: 0;
             color: var(--text-dark);
         }
-        .form-container label {
+        .form-container label, .users-list label {
             display: block;
             margin-bottom: 5px;
             font-size: 14px;
             color: var(--text-dark);
         }
-        .form-container input,
-        .form-container select {
+        .form-container input, .form-container select, .users-list select {
             width: 100%;
             padding: 8px;
             margin-bottom: 15px;
@@ -91,7 +92,7 @@
             border-radius: 4px;
             font-size: 14px;
         }
-        .form-container button {
+        .form-container button, .users-list button {
             padding: 10px 20px;
             background-color: var(--primary);
             color: var(--card-bg);
@@ -101,8 +102,14 @@
             font-size: 14px;
             transition: background-color 0.3s;
         }
-        .form-container button:hover {
+        .form-container button:hover, .users-list button:hover {
             background-color: var(--text-light);
+        }
+        .users-list button.delete-btn {
+            background-color: var(--danger);
+        }
+        .users-list button.delete-btn:hover {
+            background-color: #c82333;
         }
         .unauthenticated-message {
             text-align: center;
@@ -110,12 +117,32 @@
             color: var(--text-light);
             font-size: 16px;
         }
+        .user-card {
+            border: 1px solid var(--border-color);
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .user-card select {
+            width: 150px;
+        }
         @media (max-width: 768px) {
             .container {
                 padding: 15px;
             }
-            .form-container {
+            .form-container, .users-list {
                 padding: 15px;
+            }
+            .user-card {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            .user-card select, .user-card button {
+                width: 100%;
+                margin-top: 10px;
             }
         }
     </style>
@@ -123,7 +150,7 @@
 <body>
     <div class="header">
         <h1>🏗️ Manage Users</h1>
-        <p>Add new users to the Egyptian Construction Suppliers system</p>
+        <p>Add, update, or delete users in the Egyptian Construction Suppliers system</p>
         <div class="auth-status">
             <span id="user-info">Not logged in</span>
             <button id="logout-btn" onclick="logout()" style="display: none;">Logout</button>
@@ -150,12 +177,16 @@
                 <button type="submit">Add User</button>
             </form>
         </div>
+        <div id="users-list" class="users-list" style="display: none;">
+            <h2>Existing Users</h2>
+            <div id="users-container"></div>
+        </div>
     </div>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.0/firebase-app.js";
-        import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.14.0/firebase-firestore.js";
-        import { getAuth, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.14.0/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, getDocs, collection, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.14.0/firebase-firestore.js";
+        import { getAuth, createUserWithEmailAndPassword, signOut, onAuthStateChanged, deleteUser } from "https://www.gstatic.com/firebasejs/10.14.0/firebase-auth.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyD5mjE8QffWoMR4812-6V2D6oOAeyyZ3Rs",
@@ -180,10 +211,73 @@
                 document.getElementById('user-info').textContent = 'Not logged in';
                 document.getElementById('logout-btn').style.display = 'none';
                 document.getElementById('form-container').style.display = 'none';
+                document.getElementById('users-list').style.display = 'none';
                 document.getElementById('unauthenticated-message').style.display = 'block';
             } catch (e) {
                 console.error("Error logging out: ", e);
                 alert('Logout failed: ' + e.message);
+            }
+        }
+
+        async function loadUsers() {
+            const usersContainer = document.getElementById('users-container');
+            usersContainer.innerHTML = '';
+            try {
+                const querySnapshot = await getDocs(collection(db, 'users'));
+                querySnapshot.forEach((doc) => {
+                    const userData = doc.data();
+                    const userCard = document.createElement('div');
+                    userCard.classList.add('user-card');
+                    userCard.innerHTML = `
+                        <span>${doc.id} (${userData.role})</span>
+                        <div>
+                            <select id="role-${doc.id}" onchange="updateUserRole('${doc.id}', this.value)">
+                                <option value="Manager" ${userData.role === 'Manager' ? 'selected' : ''}>Manager</option>
+                                <option value="Editor" ${userData.role === 'Editor' ? 'selected' : ''}>Editor</option>
+                                <option value="Viewer" ${userData.role === 'Viewer' ? 'selected' : ''}>Viewer</option>
+                            </select>
+                            <button class="delete-btn" onclick="deleteUserAccount('${doc.id}')">Delete</button>
+                        </div>
+                    `;
+                    usersContainer.appendChild(userCard);
+                });
+            } catch (e) {
+                console.error("Error loading users: ", e);
+                alert('Failed to load users: ' + e.message);
+            }
+        }
+
+        async function updateUserRole(uid, newRole) {
+            if (!auth.currentUser || userRole !== 'Manager') {
+                alert('Only Managers can update user roles.');
+                return;
+            }
+            try {
+                await updateDoc(doc(db, 'users', uid), { role: newRole });
+                alert(`User ${uid} role updated to ${newRole}`);
+                await loadUsers();
+            } catch (e) {
+                console.error("Error updating user role: ", e);
+                alert('Failed to update user role: ' + e.message);
+            }
+        }
+
+        async function deleteUserAccount(uid) {
+            if (!auth.currentUser || userRole !== 'Manager') {
+                alert('Only Managers can delete users.');
+                return;
+            }
+            if (confirm(`Are you sure you want to delete user ${uid}?`)) {
+                try {
+                    // Delete from Firestore
+                    await deleteDoc(doc(db, 'users', uid));
+                    // Note: Cannot delete from Authentication without re-authenticating or admin SDK
+                    alert(`User ${uid} deleted from Firestore. Note: Authentication record remains.`);
+                    await loadUsers();
+                } catch (e) {
+                    console.error("Error deleting user: ", e);
+                    alert('Failed to delete user: ' + e.message);
+                }
             }
         }
 
@@ -192,30 +286,48 @@
                 if (user) {
                     try {
                         const userDoc = await getDoc(doc(db, 'users', user.uid));
-                        userRole = userDoc.exists() ? userDoc.data().role : null;
-                        document.getElementById('user-info').textContent = `Logged in as ${user.email} (${userRole || 'No role'})`;
+                        if (!userDoc.exists()) {
+                            // Sign out users without a role in Firestore
+                            await signOut(auth);
+                            document.getElementById('user-info').textContent = 'Not logged in';
+                            document.getElementById('logout-btn').style.display = 'none';
+                            document.getElementById('form-container').style.display = 'none';
+                            document.getElementById('users-list').style.display = 'none';
+                            document.getElementById('unauthenticated-message').style.display = 'block';
+                            document.getElementById('unauthenticated-message').textContent = 'No role assigned. Contact a Manager.';
+                            return;
+                        }
+                        userRole = userDoc.data().role;
+                        document.getElementById('user-info').textContent = `Logged in as ${user.email} (${userRole})`;
                         document.getElementById('logout-btn').style.display = 'inline';
                         if (userRole === 'Manager') {
                             document.getElementById('form-container').style.display = 'block';
+                            document.getElementById('users-list').style.display = 'block';
                             document.getElementById('unauthenticated-message').style.display = 'none';
+                            await loadUsers();
                         } else {
                             document.getElementById('form-container').style.display = 'none';
+                            document.getElementById('users-list').style.display = 'none';
                             document.getElementById('unauthenticated-message').style.display = 'block';
                             document.getElementById('unauthenticated-message').textContent = 'You must be a Manager to access this page.';
                         }
                     } catch (e) {
                         console.error("Error fetching user role: ", e);
+                        await signOut(auth);
                         userRole = null;
                         document.getElementById('user-info').textContent = 'Not logged in';
                         document.getElementById('logout-btn').style.display = 'none';
                         document.getElementById('form-container').style.display = 'none';
+                        document.getElementById('users-list').style.display = 'none';
                         document.getElementById('unauthenticated-message').style.display = 'block';
+                        document.getElementById('unauthenticated-message').textContent = 'Error fetching role. Please log in again.';
                     }
                 } else {
                     userRole = null;
                     document.getElementById('user-info').textContent = 'Not logged in';
                     document.getElementById('logout-btn').style.display = 'none';
                     document.getElementById('form-container').style.display = 'none';
+                    document.getElementById('users-list').style.display = 'none';
                     document.getElementById('unauthenticated-message').style.display = 'block';
                 }
             });
@@ -236,6 +348,7 @@
                     await setDoc(doc(db, 'users', user.uid), { role: role });
                     alert(`User ${email} created with role ${role}`);
                     userForm.reset();
+                    await loadUsers();
                 } catch (e) {
                     console.error("Error creating user: ", e);
                     alert('Failed to create user: ' + e.message);
@@ -244,6 +357,8 @@
         });
 
         window.logout = logout;
+        window.updateUserRole = updateUserRole;
+        window.deleteUserAccount = deleteUserAccount;
     </script>
 </body>
 </html>

@@ -515,7 +515,7 @@
 
                 try {
                     // Create user account using secondary auth to prevent auto sign-in
-                    const userCredential = await createUserWithEmailAndPassword(secondaryAuth, email, password);
+                    const userCredential = await createUserWithEmailAndPassword(secondaryAuth, sanitizedEmail, password);
                     const newUser = userCredential.user;
                     const newUserUid = newUser.uid;
 
@@ -523,17 +523,15 @@
                     await signOut(secondaryAuth);
 
                     try {
-                        // Add role to Firestore with security metadata
+                        // Add role to Firestore with basic security metadata
                         await setDoc(doc(db, 'users', newUserUid), { 
                             role: role,
                             email: sanitizedEmail,
-                            createdAt: new Date(),
-                            createdBy: currentUser.uid,
-                            lastModified: new Date(),
-                            modifiedBy: currentUser.uid
+                            createdAt: new Date().toISOString(),
+                            createdBy: currentUser.uid
                         });
 
-                        showSuccess(`User ${email} created successfully with role ${role}`);
+                        showSuccess(`User ${sanitizedEmail} created successfully with role ${role}`);
                         userForm.reset();
                         await loadUsers();
                         
@@ -541,12 +539,12 @@
                         console.error("Direct setDoc failed, trying alternative approach: ", firestoreError);
                         
                         // Method 2: Alternative approach - show manual instructions
-                        showError(`User ${email} created in Authentication (UID: ${newUserUid}) but automatic role assignment failed. Please manually add this user to Firestore:
+                        showError(`User ${sanitizedEmail} created in Authentication (UID: ${newUserUid}) but automatic role assignment failed. Please manually add this user to Firestore:
                         
 1. Go to Firebase Console → Firestore
 2. Go to 'users' collection  
 3. Add document with ID: ${newUserUid}
-4. Add fields: role='${role}', email='${email}'
+4. Add fields: role='${role}', email='${sanitizedEmail}'
 
 Error details: ${firestoreError.message}`);
                         

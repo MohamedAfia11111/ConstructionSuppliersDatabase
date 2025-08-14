@@ -245,6 +245,10 @@
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
         const auth = getAuth(app);
+        
+        // Initialize secondary app to prevent auto sign-in
+        const secondaryApp = initializeApp(firebaseConfig, "secondary");
+        const secondaryAuth = getAuth(secondaryApp);
 
         let userRole = null;
         let currentUser = null;
@@ -492,11 +496,14 @@
                 submitBtn.textContent = 'Creating User...';
 
                 try {
-                    // Create user account
-                    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+                    // Create user account using secondary auth to prevent auto sign-in
+                    const userCredential = await createUserWithEmailAndPassword(secondaryAuth, email, password);
                     const newUser = userCredential.user;
 
                     try {
+                        // Sign out from secondary auth immediately
+                        await signOut(secondaryAuth);
+                        
                         // Add role to Firestore using the UID as document ID
                         await setDoc(doc(db, 'users', newUser.uid), { 
                             role: role,
@@ -510,7 +517,7 @@
                         await loadUsers();
                     } catch (firestoreError) {
                         console.error("Error adding user to Firestore: ", firestoreError);
-                        showError(`User created in Authentication but failed to add role: ${firestoreError.message}`);
+                        showError(`User created in Authentication but failed to add role: ${firestoreError.message}. Please check Firestore rules.`);
                     }
                 } catch (e) {
                     console.error("Error creating user: ", e);

@@ -207,8 +207,8 @@
             <form id="userForm">
                 <label for="user-email">Email:</label>
                 <input type="email" id="user-email" required placeholder="user@example.com">
-                <label for="user-password">Password (minimum 6 characters):</label>
-                <input type="password" id="user-password" required minlength="6" placeholder="Enter password">
+                <label for="user-password">Password (minimum 8 characters, must include uppercase, lowercase, and number):</label>
+                <input type="password" id="user-password" required minlength="8" placeholder="Enter secure password" pattern="(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}">
                 <label for="user-role">Role:</label>
                 <select id="user-role" required>
                     <option value="">Select Role</option>
@@ -326,6 +326,12 @@
             const usersContainer = document.getElementById('users-container');
             const loadingDiv = document.getElementById('users-loading');
             
+            // Check if user has permission first
+            if (!currentUser || userRole !== 'Manager') {
+                usersContainer.innerHTML = '<p>Access denied. Manager role required.</p>';
+                return;
+            }
+            
             loadingDiv.style.display = 'block';
             usersContainer.innerHTML = '';
             
@@ -344,7 +350,8 @@
                     userCard.classList.add('user-card');
                     userCard.innerHTML = `
                         <div class="user-info">
-                            <strong>Email:</strong> ${userDoc.id}<br>
+                            <strong>UID:</strong> ${userDoc.id}<br>
+                            <strong>Email:</strong> ${userData.email || 'N/A'}<br>
                             <strong>Role:</strong> ${userData.role}
                         </div>
                         <div class="user-actions">
@@ -361,8 +368,8 @@
             } catch (e) {
                 loadingDiv.style.display = 'none';
                 console.error("Error loading users: ", e);
-                showError('Failed to load users: ' + e.message);
-                usersContainer.innerHTML = '<p class="error-message">Error loading users. Please try again.</p>';
+                showError(`Failed to load users: ${e.message}. Please verify your Firestore rules allow Managers to read the users collection.`);
+                usersContainer.innerHTML = '<p class="error-message">Error loading users. Check console and Firestore rules.</p>';
             }
         }
 
@@ -472,12 +479,23 @@
                     showError('Please enter a valid email address.');
                     return;
                 }
-                if (password.length < 6) {
-                    showError('Password must be at least 6 characters.');
+                if (password.length < 8) {
+                    showError('Password must be at least 8 characters long.');
+                    return;
+                }
+                if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(password)) {
+                    showError('Password must contain at least one uppercase letter, one lowercase letter, and one number.');
                     return;
                 }
                 if (!role) {
                     showError('Please select a role.');
+                    return;
+                }
+
+                // Sanitize inputs
+                const sanitizedEmail = email.toLowerCase().trim();
+                if (sanitizedEmail.length > 254) {
+                    showError('Email address is too long.');
                     return;
                 }
 
@@ -499,25 +517,41 @@
                     // Create user account using secondary auth to prevent auto sign-in
                     const userCredential = await createUserWithEmailAndPassword(secondaryAuth, email, password);
                     const newUser = userCredential.user;
+                    const newUserUid = newUser.uid;
+
+                    // Sign out from secondary auth immediately
+                    await signOut(secondaryAuth);
 
                     try {
-                        // Sign out from secondary auth immediately
-                        await signOut(secondaryAuth);
-                        
-                        // Add role to Firestore using the UID as document ID
-                        await setDoc(doc(db, 'users', newUser.uid), { 
+                        // Add role to Firestore with security metadata
+                        await setDoc(doc(db, 'users', newUserUid), { 
                             role: role,
-                            email: email,
-                            createdAt: new Date().toISOString(),
-                            createdBy: currentUser.uid
+                            email: sanitizedEmail,
+                            createdAt: new Date(),
+                            createdBy: currentUser.uid,
+                            lastModified: new Date(),
+                            modifiedBy: currentUser.uid
                         });
 
                         showSuccess(`User ${email} created successfully with role ${role}`);
                         userForm.reset();
                         await loadUsers();
+                        
                     } catch (firestoreError) {
-                        console.error("Error adding user to Firestore: ", firestoreError);
-                        showError(`User created in Authentication but failed to add role: ${firestoreError.message}. Please check Firestore rules.`);
+                        console.error("Direct setDoc failed, trying alternative approach: ", firestoreError);
+                        
+                        // Method 2: Alternative approach - show manual instructions
+                        showError(`User ${email} created in Authentication (UID: ${newUserUid}) but automatic role assignment failed. Please manually add this user to Firestore:
+                        
+1. Go to Firebase Console → Firestore
+2. Go to 'users' collection  
+3. Add document with ID: ${newUserUid}
+4. Add fields: role='${role}', email='${email}'
+
+Error details: ${firestoreError.message}`);
+                        
+                        // Still try to refresh the user list in case it worked
+                        setTimeout(() => loadUsers(), 2000);
                     }
                 } catch (e) {
                     console.error("Error creating user: ", e);

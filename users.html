@@ -14,6 +14,7 @@
             --text-light: #555;
             --border-color: #ddd;
             --danger: #dc3545;
+            --success: #28a745;
         }
         body {
             font-family: 'Arial', sans-serif;
@@ -91,6 +92,7 @@
             border: 1px solid var(--border-color);
             border-radius: 4px;
             font-size: 14px;
+            box-sizing: border-box;
         }
         .form-container button, .users-list button {
             padding: 10px 20px;
@@ -104,6 +106,10 @@
         }
         .form-container button:hover, .users-list button:hover {
             background-color: var(--text-light);
+        }
+        .form-container button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
         }
         .users-list button.delete-btn {
             background-color: var(--danger);
@@ -119,19 +125,44 @@
         }
         .user-card {
             border: 1px solid var(--border-color);
-            padding: 10px;
+            padding: 15px;
             margin-bottom: 10px;
             border-radius: 4px;
             display: flex;
             justify-content: space-between;
             align-items: center;
         }
-        .user-card select {
-            width: 150px;
+        .user-card .user-info {
+            flex: 1;
         }
-        #recaptcha-container {
+        .user-card .user-actions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .user-card select {
+            width: 120px;
+        }
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: var(--text-light);
+        }
+        .error-message {
+            background-color: #f8d7da;
+            color: #721c24;
+            padding: 10px;
+            border-radius: 4px;
             margin-bottom: 15px;
-            display: none; /* Hidden for invisible reCAPTCHA */
+            border: 1px solid #f5c6cb;
+        }
+        .success-message {
+            background-color: #d4edda;
+            color: #155724;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            border: 1px solid #c3e6cb;
         }
         @media (max-width: 768px) {
             .container {
@@ -144,9 +175,13 @@
                 flex-direction: column;
                 align-items: flex-start;
             }
-            .user-card select, .user-card button {
+            .user-card .user-actions {
                 width: 100%;
                 margin-top: 10px;
+                justify-content: space-between;
+            }
+            .user-card select {
+                width: 150px;
             }
         }
     </style>
@@ -167,23 +202,26 @@
         </div>
         <div id="form-container" class="form-container" style="display: none;">
             <h2>Add New User</h2>
+            <div id="error-message" class="error-message" style="display: none;"></div>
+            <div id="success-message" class="success-message" style="display: none;"></div>
             <form id="userForm">
                 <label for="user-email">Email:</label>
-                <input type="email" id="user-email" required pattern="[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$">
+                <input type="email" id="user-email" required placeholder="user@example.com">
                 <label for="user-password">Password (minimum 6 characters):</label>
-                <input type="password" id="user-password" required minlength="6">
+                <input type="password" id="user-password" required minlength="6" placeholder="Enter password">
                 <label for="user-role">Role:</label>
                 <select id="user-role" required>
+                    <option value="">Select Role</option>
                     <option value="Manager">Manager</option>
                     <option value="Editor">Editor</option>
                     <option value="Viewer">Viewer</option>
                 </select>
-                <div id="recaptcha-container"></div>
-                <button type="submit">Add User</button>
+                <button type="submit" id="submit-btn">Add User</button>
             </form>
         </div>
         <div id="users-list" class="users-list" style="display: none;">
             <h2>Existing Users</h2>
+            <div id="users-loading" class="loading" style="display: none;">Loading users...</div>
             <div id="users-container"></div>
         </div>
     </div>
@@ -192,9 +230,6 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.0/firebase-app.js";
         import { getFirestore, doc, setDoc, getDoc, getDocs, collection, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.14.0/firebase-firestore.js";
         import { getAuth, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.14.0/firebase-auth.js";
-        import { initializeApp as initializeSecondaryApp } from "https://www.gstatic.com/firebasejs/10.14.0/firebase-app.js";
-        import { getAuth as getSecondaryAuth } from "https://www.gstatic.com/firebasejs/10.14.0/firebase-auth.js";
-        import { RecaptchaVerifier } from "https://www.gstatic.com/firebasejs/10.14.0/firebase-auth.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyD5mjE8QffWoMR4812-6V2D6oOAeyyZ3Rs",
@@ -206,234 +241,307 @@
             measurementId: "G-R6SWKENJQY"
         };
 
-        // Primary app for the current user (Manager)
+        // Initialize Firebase
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
         const auth = getAuth(app);
 
-        // Secondary app for creating new users
-        const secondaryApp = initializeSecondaryApp(firebaseConfig, "secondary");
-        const secondaryAuth = getSecondaryAuth(secondaryApp);
-
         let userRole = null;
-        let recaptchaVerifier = null;
+        let currentUser = null;
 
+        // Utility functions
+        function showError(message) {
+            const errorDiv = document.getElementById('error-message');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+            setTimeout(() => {
+                errorDiv.style.display = 'none';
+            }, 5000);
+        }
+
+        function showSuccess(message) {
+            const successDiv = document.getElementById('success-message');
+            successDiv.textContent = message;
+            successDiv.style.display = 'block';
+            setTimeout(() => {
+                successDiv.style.display = 'none';
+            }, 5000);
+        }
+
+        function hideMessages() {
+            document.getElementById('error-message').style.display = 'none';
+            document.getElementById('success-message').style.display = 'none';
+        }
+
+        // Auth functions
         async function logout() {
             try {
                 await signOut(auth);
                 userRole = null;
-                document.getElementById('user-info').textContent = 'Not logged in';
-                document.getElementById('logout-btn').style.display = 'none';
-                document.getElementById('form-container').style.display = 'none';
-                document.getElementById('users-list').style.display = 'none';
-                document.getElementById('unauthenticated-message').style.display = 'block';
+                currentUser = null;
+                updateUI();
             } catch (e) {
                 console.error("Error logging out: ", e);
-                alert('Logout failed: ' + e.message);
+                showError('Logout failed: ' + e.message);
             }
         }
 
+        function updateUI() {
+            const userInfo = document.getElementById('user-info');
+            const logoutBtn = document.getElementById('logout-btn');
+            const formContainer = document.getElementById('form-container');
+            const usersList = document.getElementById('users-list');
+            const unauthMessage = document.getElementById('unauthenticated-message');
+
+            if (currentUser && userRole === 'Manager') {
+                userInfo.textContent = `Logged in as ${currentUser.email} (${userRole})`;
+                logoutBtn.style.display = 'inline';
+                formContainer.style.display = 'block';
+                usersList.style.display = 'block';
+                unauthMessage.style.display = 'none';
+                loadUsers();
+            } else if (currentUser && userRole) {
+                userInfo.textContent = `Logged in as ${currentUser.email} (${userRole})`;
+                logoutBtn.style.display = 'inline';
+                formContainer.style.display = 'none';
+                usersList.style.display = 'none';
+                unauthMessage.style.display = 'block';
+                unauthMessage.textContent = 'You must be a Manager to access this page.';
+            } else {
+                userInfo.textContent = 'Not logged in';
+                logoutBtn.style.display = 'none';
+                formContainer.style.display = 'none';
+                usersList.style.display = 'none';
+                unauthMessage.style.display = 'block';
+                unauthMessage.textContent = 'You must be a Manager to access this page. Please log in.';
+            }
+        }
+
+        // User management functions
         async function loadUsers() {
             const usersContainer = document.getElementById('users-container');
+            const loadingDiv = document.getElementById('users-loading');
+            
+            loadingDiv.style.display = 'block';
             usersContainer.innerHTML = '';
+            
             try {
                 const querySnapshot = await getDocs(collection(db, 'users'));
-                querySnapshot.forEach((doc) => {
-                    const userData = doc.data();
+                loadingDiv.style.display = 'none';
+                
+                if (querySnapshot.empty) {
+                    usersContainer.innerHTML = '<p>No users found.</p>';
+                    return;
+                }
+
+                querySnapshot.forEach((userDoc) => {
+                    const userData = userDoc.data();
                     const userCard = document.createElement('div');
                     userCard.classList.add('user-card');
                     userCard.innerHTML = `
-                        <span>${doc.id} (${userData.role})</span>
-                        <div>
-                            <select id="role-${doc.id}" onchange="updateUserRole('${doc.id}', this.value)">
+                        <div class="user-info">
+                            <strong>Email:</strong> ${userDoc.id}<br>
+                            <strong>Role:</strong> ${userData.role}
+                        </div>
+                        <div class="user-actions">
+                            <select id="role-${userDoc.id}" onchange="updateUserRole('${userDoc.id}', this.value)">
                                 <option value="Manager" ${userData.role === 'Manager' ? 'selected' : ''}>Manager</option>
                                 <option value="Editor" ${userData.role === 'Editor' ? 'selected' : ''}>Editor</option>
                                 <option value="Viewer" ${userData.role === 'Viewer' ? 'selected' : ''}>Viewer</option>
                             </select>
-                            <button class="delete-btn" onclick="deleteUserAccount('${doc.id}')">Delete</button>
+                            <button class="delete-btn" onclick="deleteUserAccount('${userDoc.id}')" ${userDoc.id === currentUser.uid ? 'disabled title="Cannot delete yourself"' : ''}>Delete</button>
                         </div>
                     `;
                     usersContainer.appendChild(userCard);
                 });
             } catch (e) {
+                loadingDiv.style.display = 'none';
                 console.error("Error loading users: ", e);
-                alert('Failed to load users: ' + e.message);
+                showError('Failed to load users: ' + e.message);
+                usersContainer.innerHTML = '<p class="error-message">Error loading users. Please try again.</p>';
             }
         }
 
         async function updateUserRole(uid, newRole) {
-            if (!auth.currentUser || userRole !== 'Manager') {
-                alert('Only Managers can update user roles.');
+            if (!currentUser || userRole !== 'Manager') {
+                showError('Only Managers can update user roles.');
                 return;
             }
+            
+            if (uid === currentUser.uid && newRole !== 'Manager') {
+                showError('You cannot change your own role from Manager.');
+                // Reset the select back to Manager
+                document.getElementById(`role-${uid}`).value = 'Manager';
+                return;
+            }
+
             try {
                 await updateDoc(doc(db, 'users', uid), { role: newRole });
-                alert(`User ${uid} role updated to ${newRole}`);
-                await loadUsers();
+                showSuccess(`User ${uid} role updated to ${newRole}`);
             } catch (e) {
                 console.error("Error updating user role: ", e);
-                alert('Failed to update user role: ' + e.message);
+                showError('Failed to update user role: ' + e.message);
+                // Reset the select back to original value
+                const userDoc = await getDoc(doc(db, 'users', uid));
+                if (userDoc.exists()) {
+                    document.getElementById(`role-${uid}`).value = userDoc.data().role;
+                }
             }
         }
 
         async function deleteUserAccount(uid) {
-            if (!auth.currentUser || userRole !== 'Manager') {
-                alert('Only Managers can delete users.');
+            if (!currentUser || userRole !== 'Manager') {
+                showError('Only Managers can delete users.');
                 return;
             }
-            if (confirm(`Are you sure you want to delete user ${uid}?`)) {
+            
+            if (uid === currentUser.uid) {
+                showError('You cannot delete your own account.');
+                return;
+            }
+
+            if (confirm(`Are you sure you want to delete user ${uid}?\n\nNote: This will only remove the user from the database. The authentication record will remain and must be deleted manually from the Firebase Console.`)) {
                 try {
                     await deleteDoc(doc(db, 'users', uid));
-                    alert(`User ${uid} deleted from Firestore. Note: Authentication record remains; delete manually in Firebase Console.`);
-                    await loadUsers();
+                    showSuccess(`User ${uid} deleted successfully.`);
+                    await loadUsers(); // Reload the users list
                 } catch (e) {
                     console.error("Error deleting user: ", e);
-                    alert('Failed to delete user: ' + e.message);
+                    showError('Failed to delete user: ' + e.message);
                 }
             }
         }
 
+        // Initialize app
         document.addEventListener('DOMContentLoaded', () => {
-            // Initialize reCAPTCHA with retry logic
-            function initializeRecaptcha() {
-                try {
-                    recaptchaVerifier = new RecaptchaVerifier('recaptcha-container', {
-                        'size': 'invisible',
-                        'callback': () => {
-                            console.log('reCAPTCHA verified');
-                        },
-                        'expired-callback': () => {
-                            console.log('reCAPTCHA expired');
-                            alert('reCAPTCHA expired. Please try again.');
-                        },
-                        'error-callback': (error) => {
-                            console.error('reCAPTCHA error:', error);
-                            alert('reCAPTCHA failed. Please refresh the page or check Firebase App Check settings.');
-                        }
-                    }, secondaryAuth);
-                    recaptchaVerifier.render().then(() => {
-                        console.log('reCAPTCHA rendered successfully');
-                    }).catch(e => {
-                        console.error("Error rendering reCAPTCHA: ", e);
-                        alert('Failed to render reCAPTCHA. Please refresh the page.');
-                    });
-                } catch (e) {
-                    console.error("Error initializing reCAPTCHA: ", e);
-                    alert('reCAPTCHA initialization failed. Please refresh the page and ensure App Check is configured.');
-                }
-            }
-
-            initializeRecaptcha();
-
+            // Auth state observer
             onAuthStateChanged(auth, async (user) => {
+                currentUser = user;
+                
                 if (user) {
                     try {
                         const userDoc = await getDoc(doc(db, 'users', user.uid));
-                        if (!userDoc.exists()) {
-                            await signOut(auth);
-                            document.getElementById('user-info').textContent = 'Not logged in';
-                            document.getElementById('logout-btn').style.display = 'none';
-                            document.getElementById('form-container').style.display = 'none';
-                            document.getElementById('users-list').style.display = 'none';
-                            document.getElementById('unauthenticated-message').style.display = 'block';
-                            document.getElementById('unauthenticated-message').textContent = 'No role assigned. Contact a Manager.';
-                            return;
-                        }
-                        userRole = userDoc.data().role;
-                        document.getElementById('user-info').textContent = `Logged in as ${user.email} (${userRole})`;
-                        document.getElementById('logout-btn').style.display = 'inline';
-                        if (userRole === 'Manager') {
-                            document.getElementById('form-container').style.display = 'block';
-                            document.getElementById('users-list').style.display = 'block';
-                            document.getElementById('unauthenticated-message').style.display = 'none';
-                            await loadUsers();
+                        if (userDoc.exists()) {
+                            userRole = userDoc.data().role;
                         } else {
-                            document.getElementById('form-container').style.display = 'none';
-                            document.getElementById('users-list').style.display = 'none';
-                            document.getElementById('unauthenticated-message').style.display = 'block';
-                            document.getElementById('unauthenticated-message').textContent = 'You must be a Manager to access this page.';
+                            // User exists in auth but not in Firestore
+                            await signOut(auth);
+                            userRole = null;
+                            currentUser = null;
+                            showError('No role assigned. Please contact a Manager.');
                         }
                     } catch (e) {
                         console.error("Error fetching user role: ", e);
                         await signOut(auth);
                         userRole = null;
-                        document.getElementById('user-info').textContent = 'Not logged in';
-                        document.getElementById('logout-btn').style.display = 'none';
-                        document.getElementById('form-container').style.display = 'none';
-                        document.getElementById('users-list').style.display = 'none';
-                        document.getElementById('unauthenticated-message').style.display = 'block';
-                        document.getElementById('unauthenticated-message').textContent = 'Error fetching role. Please log in again.';
+                        currentUser = null;
+                        showError('Error fetching role. Please log in again.');
                     }
                 } else {
                     userRole = null;
-                    document.getElementById('user-info').textContent = 'Not logged in';
-                    document.getElementById('logout-btn').style.display = 'none';
-                    document.getElementById('form-container').style.display = 'none';
-                    document.getElementById('users-list').style.display = 'none';
-                    document.getElementById('unauthenticated-message').style.display = 'block';
+                    currentUser = null;
                 }
+                
+                updateUI();
             });
 
+            // User form submission
             const userForm = document.getElementById('userForm');
             userForm.addEventListener('submit', async (e) => {
                 e.preventDefault();
-                if (!auth.currentUser || userRole !== 'Manager') {
-                    alert('Only Managers can add users.');
+                
+                if (!currentUser || userRole !== 'Manager') {
+                    showError('Only Managers can add users.');
                     return;
                 }
+
+                hideMessages();
+                
                 const email = document.getElementById('user-email').value.trim();
                 const password = document.getElementById('user-password').value;
                 const role = document.getElementById('user-role').value;
+                const submitBtn = document.getElementById('submit-btn');
 
                 // Validate inputs
                 const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
                 if (!emailRegex.test(email)) {
-                    alert('Please enter a valid email address.');
+                    showError('Please enter a valid email address.');
                     return;
                 }
                 if (password.length < 6) {
-                    alert('Password must be at least 6 characters.');
+                    showError('Password must be at least 6 characters.');
+                    return;
+                }
+                if (!role) {
+                    showError('Please select a role.');
                     return;
                 }
 
-                if (!recaptchaVerifier) {
-                    alert('reCAPTCHA not initialized. Please refresh the page and ensure App Check is configured.');
-                    initializeRecaptcha();
-                    return;
+                // Check if user already exists in Firestore
+                try {
+                    const existingUserDoc = await getDoc(doc(db, 'users', email));
+                    if (existingUserDoc.exists()) {
+                        showError('A user with this email already exists.');
+                        return;
+                    }
+                } catch (e) {
+                    console.log("Error checking existing user (expected if user doesn't exist): ", e);
                 }
+
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'Creating User...';
 
                 try {
-                    // Verify reCAPTCHA
-                    await recaptchaVerifier.verify();
-
-                    // Create new user in secondary app
-                    const userCredential = await createUserWithEmailAndPassword(secondaryAuth, email, password);
+                    // Create user account
+                    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
                     const newUser = userCredential.user;
 
-                    // Add role to Firestore
-                    await setDoc(doc(db, 'users', newUser.uid), { role: role });
+                    try {
+                        // Add role to Firestore using the UID as document ID
+                        await setDoc(doc(db, 'users', newUser.uid), { 
+                            role: role,
+                            email: email,
+                            createdAt: new Date().toISOString(),
+                            createdBy: currentUser.uid
+                        });
 
-                    // Sign out from secondary app
-                    await signOut(secondaryAuth);
-
-                    alert(`User ${email} created with role ${role}`);
-                    userForm.reset();
-                    await loadUsers();
-
-                    // Reset reCAPTCHA
-                    recaptchaVerifier.clear();
-                    initializeRecaptcha();
+                        showSuccess(`User ${email} created successfully with role ${role}`);
+                        userForm.reset();
+                        await loadUsers();
+                    } catch (firestoreError) {
+                        console.error("Error adding user to Firestore: ", firestoreError);
+                        showError(`User created in Authentication but failed to add role: ${firestoreError.message}`);
+                    }
                 } catch (e) {
-                    console.error("Error creating user: ", e.code, e.message);
-                    alert(`Failed to create user: ${e.message}`);
-                    await signOut(secondaryAuth); // Clean up secondary app
-                    // Re-initialize reCAPTCHA on failure
-                    recaptchaVerifier.clear();
-                    initializeRecaptcha();
+                    console.error("Error creating user: ", e);
+                    let errorMessage = 'Failed to create user: ';
+                    
+                    switch (e.code) {
+                        case 'auth/email-already-in-use':
+                            errorMessage += 'Email already in use.';
+                            break;
+                        case 'auth/invalid-email':
+                            errorMessage += 'Invalid email address.';
+                            break;
+                        case 'auth/weak-password':
+                            errorMessage += 'Password is too weak.';
+                            break;
+                        case 'auth/operation-not-allowed':
+                            errorMessage += 'Email/password accounts are not enabled.';
+                            break;
+                        default:
+                            errorMessage += e.message;
+                    }
+                    
+                    showError(errorMessage);
+                } finally {
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Add User';
                 }
             });
         });
 
+        // Make functions available globally
         window.logout = logout;
         window.updateUserRole = updateUserRole;
         window.deleteUserAccount = deleteUserAccount;

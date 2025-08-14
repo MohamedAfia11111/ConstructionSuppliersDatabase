@@ -294,30 +294,36 @@
         }
 
         document.addEventListener('DOMContentLoaded', () => {
-            // Initialize invisible reCAPTCHA
-            try {
-                recaptchaVerifier = new RecaptchaVerifier('recaptcha-container', {
-                    'size': 'invisible',
-                    'callback': () => {
-                        console.log('reCAPTCHA verified');
-                    },
-                    'expired-callback': () => {
-                        console.log('reCAPTCHA expired');
-                        alert('reCAPTCHA expired. Please try again.');
-                    },
-                    'error-callback': () => {
-                        console.log('reCAPTCHA error');
-                        alert('reCAPTCHA failed. Please refresh the page.');
-                    }
-                }, secondaryAuth);
-                recaptchaVerifier.render().catch(e => {
-                    console.error("Error rendering reCAPTCHA: ", e);
-                    alert('Failed to load reCAPTCHA. Please refresh the page.');
-                });
-            } catch (e) {
-                console.error("Error initializing reCAPTCHA: ", e);
-                alert('reCAPTCHA initialization failed. Please refresh the page.');
+            // Initialize reCAPTCHA with retry logic
+            function initializeRecaptcha() {
+                try {
+                    recaptchaVerifier = new RecaptchaVerifier('recaptcha-container', {
+                        'size': 'invisible',
+                        'callback': () => {
+                            console.log('reCAPTCHA verified');
+                        },
+                        'expired-callback': () => {
+                            console.log('reCAPTCHA expired');
+                            alert('reCAPTCHA expired. Please try again.');
+                        },
+                        'error-callback': (error) => {
+                            console.error('reCAPTCHA error:', error);
+                            alert('reCAPTCHA failed. Please refresh the page or check Firebase App Check settings.');
+                        }
+                    }, secondaryAuth);
+                    recaptchaVerifier.render().then(() => {
+                        console.log('reCAPTCHA rendered successfully');
+                    }).catch(e => {
+                        console.error("Error rendering reCAPTCHA: ", e);
+                        alert('Failed to render reCAPTCHA. Please refresh the page.');
+                    });
+                } catch (e) {
+                    console.error("Error initializing reCAPTCHA: ", e);
+                    alert('reCAPTCHA initialization failed. Please refresh the page and ensure App Check is configured.');
+                }
             }
+
+            initializeRecaptcha();
 
             onAuthStateChanged(auth, async (user) => {
                 if (user) {
@@ -390,6 +396,12 @@
                     return;
                 }
 
+                if (!recaptchaVerifier) {
+                    alert('reCAPTCHA not initialized. Please refresh the page and ensure App Check is configured.');
+                    initializeRecaptcha();
+                    return;
+                }
+
                 try {
                     // Verify reCAPTCHA
                     await recaptchaVerifier.verify();
@@ -410,28 +422,14 @@
 
                     // Reset reCAPTCHA
                     recaptchaVerifier.clear();
-                    recaptchaVerifier = new RecaptchaVerifier('recaptcha-container', {
-                        'size': 'invisible',
-                        'callback': () => {
-                            console.log('reCAPTCHA verified');
-                        },
-                        'expired-callback': () => {
-                            console.log('reCAPTCHA expired');
-                            alert('reCAPTCHA expired. Please try again.');
-                        },
-                        'error-callback': () => {
-                            console.log('reCAPTCHA error');
-                            alert('reCAPTCHA failed. Please refresh the page.');
-                        }
-                    }, secondaryAuth);
-                    recaptchaVerifier.render().catch(e => {
-                        console.error("Error rendering reCAPTCHA: ", e);
-                        alert('Failed to load reCAPTCHA. Please refresh the page.');
-                    });
+                    initializeRecaptcha();
                 } catch (e) {
                     console.error("Error creating user: ", e.code, e.message);
                     alert(`Failed to create user: ${e.message}`);
                     await signOut(secondaryAuth); // Clean up secondary app
+                    // Re-initialize reCAPTCHA on failure
+                    recaptchaVerifier.clear();
+                    initializeRecaptcha();
                 }
             });
         });

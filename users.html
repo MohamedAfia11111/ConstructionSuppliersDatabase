@@ -129,6 +129,10 @@
         .user-card select {
             width: 150px;
         }
+        #recaptcha-container {
+            margin-bottom: 15px;
+            display: none; /* Hidden for invisible reCAPTCHA */
+        }
         @media (max-width: 768px) {
             .container {
                 padding: 15px;
@@ -165,7 +169,7 @@
             <h2>Add New User</h2>
             <form id="userForm">
                 <label for="user-email">Email:</label>
-                <input type="email" id="user-email" required>
+                <input type="email" id="user-email" required pattern="[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$">
                 <label for="user-password">Password (minimum 6 characters):</label>
                 <input type="password" id="user-password" required minlength="6">
                 <label for="user-role">Role:</label>
@@ -174,6 +178,7 @@
                     <option value="Editor">Editor</option>
                     <option value="Viewer">Viewer</option>
                 </select>
+                <div id="recaptcha-container"></div>
                 <button type="submit">Add User</button>
             </form>
         </div>
@@ -186,7 +191,10 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.0/firebase-app.js";
         import { getFirestore, doc, setDoc, getDoc, getDocs, collection, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.14.0/firebase-firestore.js";
-        import { getAuth, createUserWithEmailAndPassword, signOut, onAuthStateChanged, deleteUser } from "https://www.gstatic.com/firebasejs/10.14.0/firebase-auth.js";
+        import { getAuth, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.14.0/firebase-auth.js";
+        import { initializeApp as initializeSecondaryApp } from "https://www.gstatic.com/firebasejs/10.14.0/firebase-app.js";
+        import { getAuth as getSecondaryAuth } from "https://www.gstatic.com/firebasejs/10.14.0/firebase-auth.js";
+        import { RecaptchaVerifier } from "https://www.gstatic.com/firebasejs/10.14.0/firebase-auth.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyD5mjE8QffWoMR4812-6V2D6oOAeyyZ3Rs",
@@ -198,11 +206,17 @@
             measurementId: "G-R6SWKENJQY"
         };
 
+        // Primary app for the current user (Manager)
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
         const auth = getAuth(app);
 
+        // Secondary app for creating new users
+        const secondaryApp = initializeSecondaryApp(firebaseConfig, "secondary");
+        const secondaryAuth = getSecondaryAuth(secondaryApp);
+
         let userRole = null;
+        let recaptchaVerifier = null;
 
         async function logout() {
             try {
@@ -269,10 +283,8 @@
             }
             if (confirm(`Are you sure you want to delete user ${uid}?`)) {
                 try {
-                    // Delete from Firestore
                     await deleteDoc(doc(db, 'users', uid));
-                    // Note: Cannot delete from Authentication without re-authenticating or admin SDK
-                    alert(`User ${uid} deleted from Firestore. Note: Authentication record remains.`);
+                    alert(`User ${uid} deleted from Firestore. Note: Authentication record remains; delete manually in Firebase Console.`);
                     await loadUsers();
                 } catch (e) {
                     console.error("Error deleting user: ", e);
@@ -282,12 +294,36 @@
         }
 
         document.addEventListener('DOMContentLoaded', () => {
+            // Initialize invisible reCAPTCHA
+            try {
+                recaptchaVerifier = new RecaptchaVerifier('recaptcha-container', {
+                    'size': 'invisible',
+                    'callback': () => {
+                        console.log('reCAPTCHA verified');
+                    },
+                    'expired-callback': () => {
+                        console.log('reCAPTCHA expired');
+                        alert('reCAPTCHA expired. Please try again.');
+                    },
+                    'error-callback': () => {
+                        console.log('reCAPTCHA error');
+                        alert('reCAPTCHA failed. Please refresh the page.');
+                    }
+                }, secondaryAuth);
+                recaptchaVerifier.render().catch(e => {
+                    console.error("Error rendering reCAPTCHA: ", e);
+                    alert('Failed to load reCAPTCHA. Please refresh the page.');
+                });
+            } catch (e) {
+                console.error("Error initializing reCAPTCHA: ", e);
+                alert('reCAPTCHA initialization failed. Please refresh the page.');
+            }
+
             onAuthStateChanged(auth, async (user) => {
                 if (user) {
                     try {
                         const userDoc = await getDoc(doc(db, 'users', user.uid));
                         if (!userDoc.exists()) {
-                            // Sign out users without a role in Firestore
                             await signOut(auth);
                             document.getElementById('user-info').textContent = 'Not logged in';
                             document.getElementById('logout-btn').style.display = 'none';
@@ -339,19 +375,63 @@
                     alert('Only Managers can add users.');
                     return;
                 }
-                const email = document.getElementById('user-email').value;
+                const email = document.getElementById('user-email').value.trim();
                 const password = document.getElementById('user-password').value;
                 const role = document.getElementById('user-role').value;
+
+                // Validate inputs
+                const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+                if (!emailRegex.test(email)) {
+                    alert('Please enter a valid email address.');
+                    return;
+                }
+                if (password.length < 6) {
+                    alert('Password must be at least 6 characters.');
+                    return;
+                }
+
                 try {
-                    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-                    const user = userCredential.user;
-                    await setDoc(doc(db, 'users', user.uid), { role: role });
+                    // Verify reCAPTCHA
+                    await recaptchaVerifier.verify();
+
+                    // Create new user in secondary app
+                    const userCredential = await createUserWithEmailAndPassword(secondaryAuth, email, password);
+                    const newUser = userCredential.user;
+
+                    // Add role to Firestore
+                    await setDoc(doc(db, 'users', newUser.uid), { role: role });
+
+                    // Sign out from secondary app
+                    await signOut(secondaryAuth);
+
                     alert(`User ${email} created with role ${role}`);
                     userForm.reset();
                     await loadUsers();
+
+                    // Reset reCAPTCHA
+                    recaptchaVerifier.clear();
+                    recaptchaVerifier = new RecaptchaVerifier('recaptcha-container', {
+                        'size': 'invisible',
+                        'callback': () => {
+                            console.log('reCAPTCHA verified');
+                        },
+                        'expired-callback': () => {
+                            console.log('reCAPTCHA expired');
+                            alert('reCAPTCHA expired. Please try again.');
+                        },
+                        'error-callback': () => {
+                            console.log('reCAPTCHA error');
+                            alert('reCAPTCHA failed. Please refresh the page.');
+                        }
+                    }, secondaryAuth);
+                    recaptchaVerifier.render().catch(e => {
+                        console.error("Error rendering reCAPTCHA: ", e);
+                        alert('Failed to load reCAPTCHA. Please refresh the page.');
+                    });
                 } catch (e) {
-                    console.error("Error creating user: ", e);
-                    alert('Failed to create user: ' + e.message);
+                    console.error("Error creating user: ", e.code, e.message);
+                    alert(`Failed to create user: ${e.message}`);
+                    await signOut(secondaryAuth); // Clean up secondary app
                 }
             });
         });
